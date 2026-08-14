@@ -350,10 +350,33 @@ static enum boot_method detect_boot_method(void) {
     }
 
     /* 检查 PVH magic（在 hvm_start_info.magic）
-     * EBX 指向 hvm_start_info 结构
-     * 读结构第一个字段 magic，判断是否 PVH
-     * （PVH 启动时 EBX 一定是有效地址，读取安全）*/
-    struct hvm_start_info *si = (struct hvm_start_info *)x86_64_boot_ebx;
+     *
+     * 【C9 修复】原代码直接 `(struct hvm_start_info *)x86_64_boot_ebx`
+     *   然后 `si->magic`，若 EBX 是垃圾值（非 PVH 启动且非 multiboot2），
+     *   解引用会 #PF → triple fault，没有任何诊断信息。
+     *
+     *   PVH 协议保证（Xen PVH spec, hvm_start_info 布局）：
+     *     - EBX 指向 hvm_start_info 结构，物理地址
+     *     - 结构必须 4 字节对齐（magic 字段是 u32）
+     *     - 结构位于低 4GB 物理地址（PVH 32-bit entry point 约束）
+     *     - magic 字段在结构偏移 0，读 4 字节
+     *
+     *   这里做轻量预校验，过滤明显非法的 EBX：
+     *     (a) 0：bootloader 没传，或未初始化（.bss 默认 0）
+     *     (b) 非 4 字节对齐：违反 PVH 协议，不可能是合法 start_info
+     *     (c) 超过 4GB：PVH 32-bit entry 约束
+     *   通过预校验后再解引用。完整 page-table-walk 校验需要 VMM
+     *   已就绪（此时 VMM 还没初始化），故只做静态范围检查。
+     *
+     *   注意：multiboot2 路径已经在前面的 EAX 校验中分流，
+     *   走到这里说明 EAX ≠ multiboot2 magic，EBX 合法的唯一可能是 PVH。
+     *   预校验失败 → BOOT_UNKNOWN → 调用方 panic 给出诊断信息。 */
+    u64 ebx = x86_64_boot_ebx;
+    if (ebx == 0 || (ebx & 0x3) != 0 || ebx >= (1ULL << 32)) {
+        return BOOT_UNKNOWN;
+    }
+
+    struct hvm_start_info *si = (struct hvm_start_info *)ebx;
     if (si->magic == PVH_MAGIC) {
         return BOOT_PVH;
     }

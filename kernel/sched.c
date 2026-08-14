@@ -65,6 +65,7 @@
 #include <kernel/sched.h>
 #include <kernel/syscall.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 
 /* ---------------------------------------------------------------
  * 全局状态
@@ -562,8 +563,12 @@ void sched_yield(void) {
          *   【嵌套安全性】
          *   halt 后 timer IRQ → 重入 sched_yield → 又进 halt loop（嵌套）。
          *   每次嵌套消耗 ~200B 栈，init sleep 10 tick（100ms）内最多嵌套
-         *   ~10 层，远低于 16KB 栈限制。sleep 到期后重入 sched_yield
-         *   切走，整个栈被抛弃。 */
+         *   ~10 层，远低于 8KB 内核栈限制（TASK_STACK_SIZE = 8192，
+         *   arch/include/arch/task.h）。sleep 到期后重入 sched_yield
+         *   切走，整个栈被抛弃。
+         *
+         *   【C4 修复】原注释写"16KB 栈限制"，实际 TASK_STACK_SIZE = 8192
+         *   （8KB）。8KB 下 ~10 层嵌套 × ~200B = ~2KB，仍有 6KB 余量，安全。 */
         /* 【Bug fix】如果 prev 是 BLOCKED（例如 IPC 超时等待），
          *   也不能恢复它。原来代码把 BLOCKED 任务恢复成 RUNNING，
          *   导致 IPC 返回 IPC_OK（假唤醒，无数据），单任务场景下
@@ -860,32 +865,6 @@ int sched_num_tasks(void) {
  *     2     sleeper          BLOCKED       12           0xFFFF80000020...
  * --------------------------------------------------------------- */
 
-/* 局部：打印十进制数 */
-static void print_dec(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) { arch_console_putchar('0'); return; }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) arch_console_putchar(buf[--i]);
-}
-
-/* 局部：打印十六进制数 */
-static void print_hex(u64 v) {
-    char buf[17];
-    int i = 0;
-    const char *hex = "0123456789ABCDEF";
-    if (v == 0) { arch_console_print("0x0"); return; }
-    while (v > 0 && i < 16) {
-        buf[i++] = hex[v & 0xF];
-        v >>= 4;
-    }
-    arch_console_print("0x");
-    while (i > 0) arch_console_putchar(buf[--i]);
-}
-
 /* 局部：打印任务名字（固定宽度，对齐） */
 static void print_padded_name(const char *name) {
     int i = 0;
@@ -933,16 +912,16 @@ void sched_stats(void) {
         total_cpu_ticks += t->cpu_time_ticks;
 
         arch_console_print("  ");
-        print_dec(t->task_id);
+        kprint_dec(t->task_id);
         arch_console_print("   ");
         print_padded_name(t->name);
         arch_console_print("  ");
         arch_console_print(state_name(t->state));
         arch_console_print("  ");
-        print_dec(t->cpu_time_ticks);
+        kprint_dec(t->cpu_time_ticks);
         arch_console_print("        ");
         if (t->stack != NULL) {
-            print_hex((u64)t->stack);
+            kprint_hex((u64)t->stack);
         } else {
             arch_console_print("(boot)");
         }
@@ -950,13 +929,13 @@ void sched_stats(void) {
     }
 
     arch_console_print("\n  Total tasks: ");
-    print_dec((u64)num_tasks);
+    kprint_dec((u64)num_tasks);
     arch_console_print("  Ready: ");
-    print_dec((u64)ready_count);
+    kprint_dec((u64)ready_count);
     arch_console_print("  Blocked: ");
-    print_dec((u64)blocked_count);
+    kprint_dec((u64)blocked_count);
     arch_console_print("  Total CPU ticks: ");
-    print_dec(total_cpu_ticks);
+    kprint_dec(total_cpu_ticks);
     arch_console_print("\n");
 
     arch_irq_restore(flags);

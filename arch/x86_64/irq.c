@@ -47,6 +47,7 @@
 #include <kernel/sched.h>
 #include <kernel/syscall.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 
 /* ---------------------------------------------------------------
  * 内部函数声明（exceptions.c 里实现）
@@ -70,24 +71,7 @@ void arch_exception_handler(struct interrupt_frame *frame);
  * --------------------------------------------------------------- */
 static interrupt_handler_t irq_table[16];
 
-/* ---------------------------------------------------------------
- * print_dec - 简单打印无符号十进制数（用于中断号显示）
- * --------------------------------------------------------------- */
-static void print_dec(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) {
-        arch_console_putchar('0');
-        return;
-    }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) {
-        arch_console_putchar(buf[--i]);
-    }
-}
+/* 【C8 修复】原 irq.c 本地 print_dec 已删除，统一用 <kernel/util.h> 的 kprint_dec。 */
 
 /* ---------------------------------------------------------------
  * pit_irq_handler - 默认 PIT 定时器处理（IRQ0）
@@ -270,9 +254,9 @@ void arch_irq_dispatch(struct interrupt_frame *frame) {
             arch_console_set_color(CON_COLOR_YELLOW);
             arch_console_print("\n[WARN] Unhandled IRQ #");
             arch_console_set_color(CON_COLOR_DEFAULT);
-            print_dec((u64)irq);
+            kprint_dec((u64)irq);
             arch_console_print(" (vector ");
-            print_dec((u64)vec);
+            kprint_dec((u64)vec);
             arch_console_print(")\n");
         }
         return;
@@ -285,6 +269,6 @@ void arch_irq_dispatch(struct interrupt_frame *frame) {
     arch_console_set_color(CON_COLOR_YELLOW);
     arch_console_print("\n[WARN] Unknown interrupt vector ");
     arch_console_set_color(CON_COLOR_DEFAULT);
-    print_dec((u64)vec);
+    kprint_dec((u64)vec);
     arch_console_print("\n");
 }

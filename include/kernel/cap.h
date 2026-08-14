@@ -218,6 +218,7 @@ typedef u64 cap_slot_t;
 #define CAP_ERR_NOTFOUND (-4)  /* slot 未使用 */
 #define CAP_ERR_TYPE    (-5)   /* 类型不匹配 */
 #define CAP_ERR_TOOLONG (-6)   /* payload 太长 */
+#define CAP_ERR_CSPACE_FULL (-7)  /* 【C2 修复】接收方 cspace 满，附带 cap 被丢弃 */
 
 /* ---------------------------------------------------------------
  * struct cap — 单个 capability
@@ -252,7 +253,21 @@ struct cap {
  *   slots   : 固定大小数组，每个槽位一个 cap
  *   num_used: 已使用槽位数（统计用，加快"是否还有 cap"判断）
  *
- *   【为什么 cap 表是任务的字段而不是全局】
+ *   【C5 修复】原文档说"cspace 是 task_struct 的字段"，实际不是——
+ *   task_struct 里是 `struct cspace *cspace` 指针（见 arch/include/arch/task.h），
+ *   struct cspace 本体由 cap_cspace_init() 通过 kmalloc(sizeof(struct cspace))
+ *   单独分配（kernel/cap.c:192），cap_cspace_destroy() 时 kfree（cap/c:229）。
+ *   生命周期：随 task 创建而 kmalloc，随 task 退出（reaper）而 kfree。
+ *
+ *   【为什么 cspace 是指针 + kmalloc，而不是 task_struct 内嵌字段】
+ *     - 内嵌字段会让 task_struct 多 1280 字节（CAP_SLOTS_PER_TASK=32
+ *       × sizeof(struct cap)=40 = 1280B），即使任务不用 cap 也占内存
+ *     - 指针 + 按需 kmalloc：只在任务实际需要 cspace 时（sched_create_task
+ *       调 cap_cspace_init）才分配，未初始化的任务 cspace=NULL
+ *     - 缺点：多一次 kmalloc/kfree，多一次指针解引用
+ *     - 教学项目可接受；seL4 等用更紧凑的 cap tree
+ *
+ *   【为什么 cap 表是 per-task 而不是全局】
  *     - capability 的核心是"任务持有哪些权限"
  *     - 全局表 + owner 字段也行，但语义上 cspace 属于 task
  *     - seL4 的 cspace_t 也是 per-thread 的
@@ -282,11 +297,13 @@ void cap_init_subsystem(void);
 /* ---------------------------------------------------------------
  * cap_cspace_init — 为一个任务初始化 CSpace
  *
+ *   - kmalloc(sizeof(struct cspace)) 分配 cspace 本体
  *   - 把所有 slots 标 in_use=0
  *   - num_used = 0
+ *   - t->cspace 指向新分配的 cspace
  *
  *   在 sched_create_task 里调用（任务一被创建就有空 CSpace）。
- *   不分配堆内存（cspace 是 task_struct 的字段，随 task 一起分配）。 */
+ *   返回 CAP_ERR_NOMEM 如果 kmalloc 失败。 */
 int cap_cspace_init(struct task_struct *t);
 
 /* ---------------------------------------------------------------
@@ -428,9 +445,10 @@ int cap_send_with_cap(cap_slot_t chan_slot, u64 type,
  *   4. 通过 *out_cap_slot 返回新 slot 编号
  *
  *   返回值：
- *     0    — 成功
- *     < 0  — 错误
- *     *out_cap_slot = CAP_INVALID_SLOT 表示消息没附带 cap */
+ *     CAP_OK               — 成功（*out_cap_slot = CAP_INVALID_SLOT 表示消息没附带 cap）
+ *     CAP_ERR_CSPACE_FULL  — 【C2】消息已收到但附带的 cap 因 cspace 满未安装
+ *                            （buf 数据有效，*out_cap_slot = CAP_INVALID_SLOT）
+ *     其他 < 0             — 错误（权限/类型/IPC 错误） */
 int cap_recv_with_cap(cap_slot_t slot, u64 *out_type, void *buf,
                        u64 *in_out_cap, cap_slot_t *out_cap_slot);
 

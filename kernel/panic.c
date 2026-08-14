@@ -15,40 +15,9 @@
  * ================================================================ */
 
 #include <kernel/panic.h>
+#include <kernel/util.h>
 #include <arch/console.h>
 #include <arch/cpu.h>
-
-/* ---------------------------------------------------------------
- * print_decimal — 打印一个非负十进制整数
- *
- * panic 只需打印行号（正数），所以只实现非负版本。
- * 用最简单的"除 10 取余"法：
- *   123 → 3, 2, 1 → 反序输出 "123"
- * --------------------------------------------------------------- */
-static void print_decimal(int n) {
-    char buf[16];
-    int i = 0;
-
-    if (n == 0) {
-        arch_console_putchar('0');
-        return;
-    }
-
-    if (n < 0) {
-        arch_console_putchar('-');
-        n = -n;     /* 转正；INT_MIN 会溢出，但 panic 行号不会是 INT_MIN */
-    }
-
-    while (n > 0) {
-        buf[i++] = (char)('0' + (n % 10));
-        n /= 10;
-    }
-
-    /* 反序输出 */
-    while (i > 0) {
-        arch_console_putchar(buf[--i]);
-    }
-}
 
 /* ---------------------------------------------------------------
  * panic — 内核 panic
@@ -75,7 +44,7 @@ void panic(const char *file, int line, const char *msg) {
         arch_console_print("(unknown file)");
     }
     arch_console_print(":");
-    print_decimal(line);
+    kprint_dec_s((s64)line);   /* 【C8】用统一工具；【C10】INT_MIN 安全 */
     arch_console_print("\n");
 
     /* 错误信息 */

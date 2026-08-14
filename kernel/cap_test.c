@@ -35,6 +35,7 @@
 #include <kernel/panic.h>
 #include <kernel/sched.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 
 /* ================================================================
  * 测试框架（局部工具）
@@ -44,27 +45,10 @@ static int g_pass = 0;   /* 全局 PASS 计数 */
 static int g_fail = 0;   /* 全局 FAIL 计数 */
 static int g_quiet = 0;  /* 安静模式：只打印最终汇总 */
 
-/* 局部 print_dec（不依赖 main.c 的 static 版本） */
-static void ct_print_dec(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) { arch_console_putchar('0'); return; }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) arch_console_putchar(buf[--i]);
-}
-
-/* 局部 print_dec_signed（打印负数，用于错误码） */
-static void ct_print_dec_s(s64 v) {
-    if (v < 0) {
-        arch_console_putchar('-');
-        ct_print_dec((u64)(-v));
-    } else {
-        ct_print_dec((u64)v);
-    }
-}
+/* 【C8 修复】原 ct_print_dec / ct_print_dec_s 已删除，
+ *   统一用 <kernel/util.h> 的 kprint_dec / kprint_dec_s。
+ *   顺便修了原 ct_print_dec_s 的 INT64_MIN UB（原 (u64)(-v) 溢出，
+ *   kprint_dec_s 用 -(u64)v 良定义）。 */
 
 /* 局部 strlen */
 static u64 ct_strlen(const char *s) {
@@ -100,9 +84,9 @@ static void test_print_fail(const char *name, s64 expected, s64 got) {
     arch_console_set_color(CON_COLOR_DEFAULT);
     arch_console_print(name);
     arch_console_print("  expected=");
-    ct_print_dec_s(expected);
+    kprint_dec_s(expected);
     arch_console_print(" got=");
-    ct_print_dec_s(got);
+    kprint_dec_s(got);
     arch_console_print("\n");
     g_fail++;
 }
@@ -145,9 +129,9 @@ static void section_summary(const char *title, int pass, int fail) {
     arch_console_print("  ");
     arch_console_print(title);
     arch_console_print(": ");
-    ct_print_dec((u64)pass);
+    kprint_dec((u64)pass);
     arch_console_print(" PASS, ");
-    ct_print_dec((u64)fail);
+    kprint_dec((u64)fail);
     arch_console_print(" FAIL\n");
 }
 
@@ -1319,7 +1303,7 @@ int cap_test_run_all(int quiet) {
     int before = cap_total_caps();
     if (!quiet) {
         arch_console_print("  Baseline cap_total_caps before tests: ");
-        ct_print_dec((u64)before);
+        kprint_dec((u64)before);
         arch_console_print("\n");
     }
 
@@ -1345,20 +1329,20 @@ int cap_test_run_all(int quiet) {
 
         arch_console_print("  Total PASS: ");
         arch_console_set_color(CON_COLOR_GREEN);
-        ct_print_dec((u64)g_pass);
+        kprint_dec((u64)g_pass);
         arch_console_set_color(CON_COLOR_DEFAULT);
         arch_console_print("\n");
 
         arch_console_print("  Total FAIL: ");
         if (g_fail > 0) arch_console_set_color(CON_COLOR_RED);
-        ct_print_dec((u64)g_fail);
+        kprint_dec((u64)g_fail);
         arch_console_set_color(CON_COLOR_DEFAULT);
         arch_console_print("\n");
 
         arch_console_print("  cap_total_caps before: ");
-        ct_print_dec((u64)before);
+        kprint_dec((u64)before);
         arch_console_print("  after: ");
-        ct_print_dec((u64)after);
+        kprint_dec((u64)after);
         if (before == after) {
             arch_console_print("  [NO LEAK]");
         } else {

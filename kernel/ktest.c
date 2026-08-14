@@ -42,6 +42,7 @@
 #include <kernel/panic.h>
 #include <kernel/sched.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 
 /* ================================================================
  * 测试框架（局部工具函数 + 宏）
@@ -59,48 +60,11 @@ static int s4_pass, s4_fail;
 static int s5_pass, s5_fail;
 static int s6_pass, s6_fail;
 
-/* 局部 print_dec（不依赖 main.c 的 static 版本，freestanding 没有 printf） */
-static void kt_print_dec(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) { arch_console_putchar('0'); return; }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) arch_console_putchar(buf[--i]);
-}
-
-/* 局部 print_dec_signed（打印负数，错误码是负数时要用） */
-static void kt_print_dec_s(s64 v) {
-    if (v < 0) {
-        arch_console_putchar('-');
-        kt_print_dec((u64)(-v));
-    } else {
-        kt_print_dec((u64)v);
-    }
-}
-
-/* 局部 print_hex（打印十六进制，地址和标志位要用） */
-static void __attribute__((unused)) kt_print_hex(u64 v) {
-    static const char hex[] = "0123456789ABCDEF";
-    arch_console_print("0x");
-    if (v == 0) { arch_console_putchar('0'); return; }
-    /* 从最高非零 nibble 开始打印 */
-    int started = 0;
-    for (int i = 60; i >= 0; i -= 4) {
-        int nibble = (int)((v >> i) & 0xF);
-        if (nibble != 0 || started) {
-            arch_console_putchar(hex[nibble]);
-            started = 1;
-        }
-    }
-}
-
-/* 局部 print_str — 和 arch_console_print 一样，但统一接口名 */
-static void __attribute__((unused)) kt_print_str(const char *s) {
-    arch_console_print(s);
-}
+/* 【C8 修复】原 kt_print_dec / kt_print_dec_s / kt_print_hex 已删除，
+ *   统一用 <kernel/util.h> 的 kprint_dec / kprint_dec_s / kprint_hex。
+ *   顺便修了原 kt_print_dec_s 的 INT64_MIN UB（原 (u64)(-v) 溢出，
+ *   kprint_dec_s 用 -(u64)v 良定义）。
+ *   kt_print_str 也删除（从未使用）。 */
 
 /* ----------------------------------------------------------------
  * TEST_CHECK_INT — 比较期望值和实际值（有符号，因为错误码是负数）
@@ -122,8 +86,8 @@ static void __attribute__((unused)) kt_print_str(const char *s) {
         arch_console_print("  [FAIL] "); \
         arch_console_set_color(CON_COLOR_DEFAULT); \
         arch_console_print(name); arch_console_print(" expected="); \
-        kt_print_dec_s((s64)(expected)); arch_console_print(" got="); \
-        kt_print_dec_s((s64)(got)); arch_console_print("\n"); \
+        kprint_dec_s((s64)(expected)); arch_console_print(" got="); \
+        kprint_dec_s((s64)(got)); arch_console_print("\n"); \
         g_fail++; \
     } \
 } while(0)
@@ -144,7 +108,7 @@ static void section_header(int n, const char *title) {
     arch_console_print("===============================================================\n");
     arch_console_set_color(CON_COLOR_CYAN);
     arch_console_print("Section ");
-    kt_print_dec((u64)n);
+    kprint_dec((u64)n);
     arch_console_print(": ");
     arch_console_print(title);
     arch_console_print("\n");
@@ -155,17 +119,17 @@ static void section_header(int n, const char *title) {
 static void section_footer(int n, const char *title, int pass, int fail) {
     if (g_quiet) return;
     arch_console_print("  Section ");
-    kt_print_dec((u64)n);
+    kprint_dec((u64)n);
     arch_console_print(" (");
     arch_console_print(title);
     arch_console_print("): ");
-    kt_print_dec((u64)pass);
+    kprint_dec((u64)pass);
     arch_console_print("/");
-    kt_print_dec((u64)(pass + fail));
+    kprint_dec((u64)(pass + fail));
     arch_console_print(" PASS");
     if (fail > 0) {
         arch_console_print(", ");
-        kt_print_dec((u64)fail);
+        kprint_dec((u64)fail);
         arch_console_print(" FAIL");
     }
     arch_console_print("\n");
@@ -247,8 +211,9 @@ static void test_section_pmm(void) {
 
     /* ---- S1_05: frame 0 永久保留（纵深防御） ---- */
     /*   物理地址 0 是 NULL page，PMM 应永久保留。
-     *   【Bug 已修复】free_frame(0) 现在被拒绝（warn + return），
-     *   alloc_frame 也跳过 idx 0（纵深防御）。
+     *   【C11 确认】free_frame(0) 在 arch/x86_64/pmm.c:425-428 被拒绝
+     *   （silent reject，return 不改位图）。原注释说"打印 WARN"不准确，
+     *   实现是静默拒绝（避免在 panic 路径里打印导致递归）。
      *   验证：(a) alloc_frame 永远不返回 0
      *         (b) free_frame(0) 不改变 free_frames 计数 */
     {
@@ -258,7 +223,7 @@ static void test_section_pmm(void) {
 
         /* free_frame(0) 应被拒绝，free_frames 不变 */
         usize_t before = arch_pmm_free_frames();
-        arch_pmm_free_frame(0);  /* 应打印 WARN 但不改位图 */
+        arch_pmm_free_frame(0);  /* silent reject，不改位图 */
         usize_t after  = arch_pmm_free_frames();
         TEST_CHECK_INT("S1_05_free_frame_0_rejected", (s64)before, (s64)after);
     }
@@ -954,24 +919,32 @@ static void test_section_sched(void) {
     }
 
     /* ---- S4_03: 创建超过 MAX_TASKS 应失败 ---- */
-    /*   MAX_TASKS=16，但已有 init + 可能的 demo 任务。
-     *   我们先查看当前任务数，再尝试创建到满。
-     *   注意：每个 helper 需要用 kmalloc 分配 task_struct + stack，
-     *   如果堆不够，也会失败。所以我们只验证"最后一个应失败"。
+    /*   【C6 修复】原测试用 `last_ok || overflow_fail`（OR 语义），
+     *   任一成立即通过——几乎恒真，是 tautology。改为两个独立 assertion：
+     *     S4_03a: 填到 MAX_TASKS-1 后，倒数第 2 个创建应成功（last_ok）
+     *     S4_03b: 再创建一个应失败（overflow < 0）
      *
-     *   策略：尽量创建到 MAX_TASKS-1 个额外任务，第 MAX_TASKS 个
-     *   应该失败。但为避免堆耗尽，我们用小批量测试：
-     *   创建到只剩 1 个空位，再试一个。 */
+     *   原"避免堆耗尽只创建 10 个"也不准确：MAX_TASKS=16，每 task 约
+     *   10KB（task_struct + cspace + 8KB 栈），16 个 ~160KB，1MB 堆够。
+     *   现在测真实的 MAX_TASKS 边界。
+     *
+     *   策略：
+     *     1. 当前已有 init + 可能的其他常驻任务，先查 sched_num_tasks()
+     *     2. slots_available = MAX_TASKS - current_tasks
+     *     3. 创建 (slots_available - 1) 个 helper 填到差 1 个满
+     *     4. 创建 1 个 "last" → 应成功（S4_03a）
+     *     5. 再创建 1 个 "overflow" → 应失败（S4_03b）
+     *     6. 立即 yield 让所有 helper 退出释放资源 */
     {
-        int current = sched_num_tasks();
-        int slots_available = MAX_TASKS - current;
+        int current_tasks = sched_num_tasks();
+        int slots_available = MAX_TASKS - current_tasks;
         s64 tids[16];
         int created = 0;
 
-        /* 填满到 MAX_TASKS-1（留 1 个给下面测试）
-         * 但限制最多创建 10 个，避免堆耗尽 */
+        /* 填到 MAX_TASKS-1（留 1 个空位给 last）
+         * 防御性：tids[16] 数组上限，所以 to_create ≤ 14 */
         int to_create = slots_available - 1;
-        if (to_create > 10) to_create = 10;
+        if (to_create > 14) to_create = 14;
         if (to_create < 0) to_create = 0;
 
         for (int i = 0; i < to_create; i++) {
@@ -986,19 +959,18 @@ static void test_section_sched(void) {
 
         /* 现在应该只剩 1 个空位，尝试创建应该成功 */
         s64 last = sched_create_task(helper_yield_exit, NULL, "kt_last");
-        int last_ok = (last >= 0) ? 1 : 0;
+        TEST_CHECK_BOOL("S4_03a_last_slot_create_succeeds",
+                        last >= 0);
 
-        /* 然后再创建一个，应该失败 */
+        /* 然后再创建一个，应该失败（任务表满） */
         s64 overflow = sched_create_task(helper_yield_exit, NULL, "kt_over");
-        int overflow_fail = (overflow < 0) ? 1 : 0;
-
-        TEST_CHECK_BOOL("S4_03_create_beyond_max_fails",
-                        last_ok || overflow_fail);
+        TEST_CHECK_BOOL("S4_03b_beyond_max_create_fails",
+                        overflow < 0);
 
         /* 清理：等所有 helper 退出 */
         wait_for_helpers(baseline);
 
-        /* 如果 overflow 意外成功，也要等它退出 */
+        /* 如果 overflow 意外成功（不应发生），也要等它退出 */
         if (overflow >= 0) {
             wait_for_helpers(baseline);
         }
@@ -1736,28 +1708,28 @@ int ktest_run_all(int quiet) {
 
         /* 各 section 统计 */
         arch_console_print("  Section 1 (PMM):          ");
-        kt_print_dec((u64)s1_pass); arch_console_print("/");
-        kt_print_dec((u64)(s1_pass + s1_fail)); arch_console_print(" PASS\n");
+        kprint_dec((u64)s1_pass); arch_console_print("/");
+        kprint_dec((u64)(s1_pass + s1_fail)); arch_console_print(" PASS\n");
 
         arch_console_print("  Section 2 (VMM):          ");
-        kt_print_dec((u64)s2_pass); arch_console_print("/");
-        kt_print_dec((u64)(s2_pass + s2_fail)); arch_console_print(" PASS\n");
+        kprint_dec((u64)s2_pass); arch_console_print("/");
+        kprint_dec((u64)(s2_pass + s2_fail)); arch_console_print(" PASS\n");
 
         arch_console_print("  Section 3 (kmalloc):      ");
-        kt_print_dec((u64)s3_pass); arch_console_print("/");
-        kt_print_dec((u64)(s3_pass + s3_fail)); arch_console_print(" PASS\n");
+        kprint_dec((u64)s3_pass); arch_console_print("/");
+        kprint_dec((u64)(s3_pass + s3_fail)); arch_console_print(" PASS\n");
 
         arch_console_print("  Section 4 (Scheduler):    ");
-        kt_print_dec((u64)s4_pass); arch_console_print("/");
-        kt_print_dec((u64)(s4_pass + s4_fail)); arch_console_print(" PASS\n");
+        kprint_dec((u64)s4_pass); arch_console_print("/");
+        kprint_dec((u64)(s4_pass + s4_fail)); arch_console_print(" PASS\n");
 
         arch_console_print("  Section 5 (IPC):          ");
-        kt_print_dec((u64)s5_pass); arch_console_print("/");
-        kt_print_dec((u64)(s5_pass + s5_fail)); arch_console_print(" PASS\n");
+        kprint_dec((u64)s5_pass); arch_console_print("/");
+        kprint_dec((u64)(s5_pass + s5_fail)); arch_console_print(" PASS\n");
 
         arch_console_print("  Section 6 (Cross-subsys): ");
-        kt_print_dec((u64)s6_pass); arch_console_print("/");
-        kt_print_dec((u64)(s6_pass + s6_fail)); arch_console_print(" PASS\n");
+        kprint_dec((u64)s6_pass); arch_console_print("/");
+        kprint_dec((u64)(s6_pass + s6_fail)); arch_console_print(" PASS\n");
 
         /* 分隔线 + 总计 */
         arch_console_print("  =======================================\n");
@@ -1770,8 +1742,8 @@ int ktest_run_all(int quiet) {
                           s6_pass + s6_fail;
 
         arch_console_print("  TOTAL:                    ");
-        kt_print_dec((u64)g_pass); arch_console_print("/");
-        kt_print_dec((u64)total_tests); arch_console_print(" PASS\n");
+        kprint_dec((u64)g_pass); arch_console_print("/");
+        kprint_dec((u64)total_tests); arch_console_print(" PASS\n");
 
         /* 如果全部通过，用绿色高亮；否则用红色 */
         if (g_fail == 0) {
@@ -1781,7 +1753,7 @@ int ktest_run_all(int quiet) {
         } else {
             arch_console_set_color(CON_COLOR_RED);
             arch_console_print("  ");
-            kt_print_dec((u64)g_fail);
+            kprint_dec((u64)g_fail);
             arch_console_print(" TEST(S) FAILED!\n");
             arch_console_set_color(CON_COLOR_DEFAULT);
         }

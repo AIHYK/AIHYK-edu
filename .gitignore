@@ -4,6 +4,8 @@
 kernel.elf
 kernel.bin
 iso/
+user/hello.bin
+user/crash.bin
 # Editor
 *.swp
 *~

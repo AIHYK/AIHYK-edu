@@ -86,7 +86,11 @@
  * 【user 传来的指针安全吗】
  *   SYS_write 传来的 buf 指针是 user 虚拟地址。因为 user 代码页 / 栈页
  *   在内核地址空间里也映射了（共享地址空间设计），内核可以直接读。
- *   但严格产品级内核应该 copy_from_user 校验。教学内核简化：直接读。
+ *
+ *   【C1 修复】单次长度上限 4KB（见 syscall.c SYS_write 实现），
+ *     防止用户传 len=2^60 让内核走过页尾触发 #PF → panic → 内核 DoS。
+ *     完整 copy_from_user + access_ok 范围校验需要 per-process 页表，
+ *     属于 pro 版工作（edu 是共享地址空间，无法隔离用户/内核指针）。
  *   （页表 U 位已保证 user 不能伪造内核指针——user 根本访问不到内核页。）
  * --------------------------------------------------------------- */
 void syscall_handler(struct interrupt_frame *frame);

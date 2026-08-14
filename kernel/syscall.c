@@ -39,23 +39,7 @@
 #include <kernel/sched.h>
 #include <kernel/syscall.h>
 #include <kernel/types.h>
-
-/* 局部工具：打印十进制（给 SYS_write 的内核侧日志用） */
-static void print_dec_local(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) {
-        arch_console_putchar('0');
-        return;
-    }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) {
-        arch_console_putchar(buf[--i]);
-    }
-}
+#include <kernel/util.h>
 
 /* ---------------------------------------------------------------
  * syscall_handler — syscall 分发
@@ -94,6 +78,24 @@ void syscall_handler(struct interrupt_frame *frame) {
     case SYS_write: {
         const char *buf = (const char *)a0;
         u64 len = a1;
+
+        /* 【C1 修复】用户指针长度上限校验
+         *
+         *   原实现直接 `for (i = 0; i < len; i++) putchar(buf[i])`，
+         *   用户传 len=2^60 + buf 近页边界 → 内核走过页尾 → #PF → panic
+         *   → 整个内核 halt。任何用户任务可 DoS 内核。
+         *
+         *   教学简化：单次 write 上限 4KB（够 hello-world / 串口日志用）。
+         *   超过返回 -1，让用户态自己分片。完整 copy_from_user + access_ok
+         *   留给 pro 版（需 per-process 页表，edu 是共享地址空间）。
+         *
+         *   选 4KB 理由：1 页大小，VGA 文本屏 80×25×2=4000 字节刚好装下，
+         *   教学示例（hello.asm / crash.asm）都在 100 字节内。 */
+        if (len > 4096) {
+            frame->rax = (u64)(-1);
+            break;
+        }
+
         for (u64 i = 0; i < len; i++) {
             arch_console_putchar(buf[i]);
         }
@@ -214,9 +216,9 @@ void syscall_handler(struct interrupt_frame *frame) {
         /* 非法 syscall 号 */
         arch_console_set_color(CON_COLOR_YELLOW);
         arch_console_print("[kernel] unknown syscall #");
-        print_dec_local(num);
+        kprint_dec(num);
         arch_console_print(" from task ");
-        print_dec_local(current->task_id);
+        kprint_dec(current->task_id);
         arch_console_print("\n");
         arch_console_set_color(CON_COLOR_DEFAULT);
         frame->rax = (u64)-1;   /* -1 表示错误 */

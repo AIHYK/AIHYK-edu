@@ -105,7 +105,7 @@ ARCH_ASM_SRCS = $(ARCH_DIR)/entry.asm $(ARCH_DIR)/isr.asm $(ARCH_DIR)/switch.asm
 KERNEL_C_SRCS = $(KERNEL_DIR)/main.c $(KERNEL_DIR)/panic.c $(KERNEL_DIR)/mm.c \
 	$(KERNEL_DIR)/sched.c $(KERNEL_DIR)/ipc.c $(KERNEL_DIR)/cap.c \
 	$(KERNEL_DIR)/cap_test.c $(KERNEL_DIR)/ktest.c $(KERNEL_DIR)/syscall.c \
-	$(KERNEL_DIR)/demo.c $(KERNEL_DIR)/test.c
+	$(KERNEL_DIR)/demo.c $(KERNEL_DIR)/test.c $(KERNEL_DIR)/util.c
 # user_image.S 是预处理汇编（gcc 编译，用 .S 后缀）
 USER_IMAGE_SRC = user_image.S
 

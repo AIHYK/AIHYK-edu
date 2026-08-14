@@ -29,6 +29,7 @@
 #include <kernel/sched.h>
 #include <kernel/syscall.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 
 /* 解耦模块（可选） */
 #include <kernel/demo.h>
@@ -52,21 +53,10 @@ extern const u8 user_hello_bin_end[];
 extern const u8 user_crash_bin[];
 extern const u8 user_crash_bin_end[];
 
-/* ---------------------------------------------------------------
- * 数字打印工具（main.c 仍需用于 idle 行）
- * --------------------------------------------------------------- */
-static void print_dec(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) { arch_console_putchar('0'); return; }
-    while (v > 0 && i < 20) { buf[i++] = (char)('0' + (v % 10)); v /= 10; }
-    while (i > 0) arch_console_putchar(buf[--i]);
-}
-
 static void print_size_kb(u64 bytes) {
     u64 kb = (bytes + 1023) / 1024;
-    if (kb < 1024) { print_dec(kb); arch_console_print(" KB"); }
-    else { u64 mb = (kb + 1023) / 1024; print_dec(mb); arch_console_print(" MB"); }
+    if (kb < 1024) { kprint_dec(kb); arch_console_print(" KB"); }
+    else { u64 mb = (kb + 1023) / 1024; kprint_dec(mb); arch_console_print(" MB"); }
 }
 
 /* ================================================================
@@ -143,7 +133,7 @@ void kernel_main(void) {
     arch_console_set_color(CON_COLOR_DEFAULT);
     print_size_kb(total_usable);
     arch_console_print(" | ");
-    print_dec((u64)arch_pmm_free_frames());
+    kprint_dec((u64)arch_pmm_free_frames());
     arch_console_print(" free frames\n");
 
     /* 7. 主循环（halt + 中断唤醒） */

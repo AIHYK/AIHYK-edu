@@ -21,10 +21,10 @@
 
 /* ---- 内核版本（单点定义，全内核引用）---- */
 #define AIHYK_VERSION_MAJOR  0
-#define AIHYK_VERSION_MINOR  1
+#define AIHYK_VERSION_MINOR  2
 #define AIHYK_VERSION_PATCH  0
-/* 字符串形式："0.1.0" — 供 banner / idle 行等使用 */
-#define AIHYK_VERSION_STR  "0.1.0"
+/* 字符串形式："0.2.0" — 供 banner / idle 行等使用 */
+#define AIHYK_VERSION_STR  "0.2.0"
 
 /* 固定宽度整数类型
  * 这些定义对 GCC/Clang 在 x86 上有效

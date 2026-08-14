@@ -22,26 +22,8 @@
 #include <kernel/panic.h>
 #include <kernel/sched.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 #include <kernel/demo.h>
-
-/* ---------------------------------------------------------------
- * 数字打印工具（demo.c 局部使用）
- * --------------------------------------------------------------- */
-static void print_dec(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) {
-        arch_console_putchar('0');
-        return;
-    }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) {
-        arch_console_putchar(buf[--i]);
-    }
-}
 
 /* ================================================================
  * 【Lesson 6】Demo 数据结构与任务
@@ -597,7 +579,19 @@ void demo_run(const void *hello_bin, u64 hello_len,
     }
 
     usize_t frames_after = arch_pmm_free_frames();
-    (void)frames_after; (void)frames_before;
+    /* 【C7 修复】原代码 `(void)frames_after; (void)frames_before;` 显式丢弃
+     *   leak 检查，L8 假装通过。worklog W10 已修了 L8 的 6-frame page-table
+     *   leak（arch_vmm_unmap_user_page 递归释放 PT/PD/PDPT），现在应无泄漏。
+     *   改为真实 KASSERT：若有泄漏，demo 阶段就 panic（fail-fast），
+     *   而不是让 ktest 在后面困惑于帧数对不上。
+     *
+     *   不打印结果行（保持 L10 清洁输出目标）；L9 仍打印 "0 page leak"
+     *   作为崩溃恢复的可视确认，L8 的 leak 检查静默但严格。 */
+    if (frames_after != frames_before) {
+        panic(__FILE__, __LINE__,
+              "L8 user-mode demo leaked physical frames "
+              "(page-table cleanup regression?)");
+    }
 
     /* ============================================================
      * L9: Crash Recovery
@@ -667,8 +661,8 @@ void demo_run(const void *hello_bin, u64 hello_len,
         arch_console_print(" . LEAK!");
     }
     arch_console_print(" . supervisor ");
-    print_dec((u64)l9_sup_args.restart_count);
+    kprint_dec((u64)l9_sup_args.restart_count);
     arch_console_print("/");
-    print_dec((u64)l9_sup_args.max_restart);
+    kprint_dec((u64)l9_sup_args.max_restart);
     arch_console_print(" restart\n");
 }

@@ -2742,3 +2742,34 @@ Stage Summary:
 - Backspace：退格时光标后退但不擦字符 → 后退并写空格覆盖
 - 179/179 测试全部 PASS，无回归
 - 交付物：/home/z/my-project/download/AIHYK.zip (288 KB)
+
+---
+Task ID: edu-0.2-c-class-fixes
+Agent: main (GLM-5.1 via Z.ai Code)
+Task: 修复 ISSUES.md 中全部 11 项 C 类问题，发布 edu 0.2.0
+
+Work Log:
+- 读取 ISSUES.md 确认 C 类清单（11 项：真 bug / 文档与代码不符 / 测试不诚实）
+- 逐项修复，每项加【Cx 修复】注释标注根因和修复方案：
+  - C1 (syscall.c SYS_write 无界读): 加 len > 4096 上限校验，返回 -1。同步更新 syscall.h 注释。
+  - C2 (cap.c cap_recv_with_cap 静默丢 cap): 新增 CAP_ERR_CSPACE_FULL (-7) 错误码，cap.h + cap.c 同步。cspace 满时返回错误码而非 CAP_OK。
+  - C3 (mm.h krealloc 文档不符): 改文档为"总是 malloc+memcpy+free"，如实描述实现。
+  - C4 (sched.c 栈大小注释 16KB→8KB): 改注释为 TASK_STACK_SIZE=8192 (8KB)，加余量计算。
+  - C5 (cap.h cspace 文档说是字段实际是指针): 改文档说明 cspace 是 struct cspace * 指针 + kmalloc 单独分配，同步 cap_cspace_init 注释。
+  - C6 (ktest S4_03 弱化测试): 把 `last_ok || overflow_fail` (OR, tautology) 拆成 S4_03a (last 应成功) + S4_03b (overflow 应失败) 两个独立 assertion，测真实 MAX_TASKS=16 边界。
+  - C7 (demo.c L8 leak check 丢弃): 把 `(void)frames_after; (void)frames_before;` 改为真实 panic 检查（leak 就 panic，fail-fast）。
+  - C8 (9 文件 print_dec/hex 重复): 新建 include/kernel/util.h + kernel/util.c 提供 kprint_dec/kprint_dec_s/kprint_hex，9 个文件删本地副本改调用。顺便修了 ktest.c/cap_test.c 的 print_dec_s INT64_MIN UB（原 (u64)(-v) 溢出，改 -(u64)v 良定义）。Makefile 加 util.c。
+  - C9 (boot.c PVH magic 解引用后才校验): 加轻量预校验（ebx==0 / 非 4 字节对齐 / >= 4GB → BOOT_UNKNOWN），非法 EBX 进 panic 而非 triple fault。
+  - C10 (panic.c INT_MIN UB): `n = -n` 改 `u = -(unsigned int)n`，2's complement 良定义。（C8 后 panic.c 用 kprint_dec_s，此修复随 C8 落地。）
+  - C11 (PMM frame 0 未保留): 确认 pmm.c:425-428 已修（free_frame 拒绝 frame==0），S1_05 回归测试已存在。修正 S1_05 注释不一致（实现是 silent reject，原注释说"打印 WARN"）。
+- 修复 Makefile recipe 行的 TAB 缺失问题（工具曾把 TAB 转 8 空格，sed 批量恢复）。
+- 验证：make 零警告零错误；PVH + ISO 双启动均 180/180 PASS（原 179 + C6 拆分新增 1）；32114 free frames 与 0.1.0 一致（无回归）。
+- bump 版本 include/kernel/types.h 0.1.0 → 0.2.0。
+
+Stage Summary:
+- 修复 11 项 C 类问题，新增 1 项测试（S4_03 拆分），测试总数 179 → 180。
+- 新增文件：include/kernel/util.h, kernel/util.c（统一打印工具，消除 9 份重复）。
+- 修改文件：syscall.c, syscall.h, cap.c, cap.h, mm.h, sched.c, ktest.c, demo.c, boot.c, panic.c, exceptions.c, irq.c, main.c, ipc.c, cap_test.c, types.h, Makefile（共 17 个）。
+- 验证：v0.2.0 | 180/180 PASS | PVH + ISO 双启动 | 32114 free frames（与 0.1.0 一致，无回归）。
+- 未做（留作 pro）：C2 的 cap_recv_with_cap cspace 满回归测试（需 helper 协作，复杂度高）；D 类 18 项架构重铸（per-process 页表 / SYSCALL/SYSRET / SMP 等）。
+- edu 0.2.0 作为教学版最后一次稳定快照，pro 从此 fork 开始 Tier 0 重铸。

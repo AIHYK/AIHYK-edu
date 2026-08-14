@@ -93,6 +93,7 @@
 #include <kernel/panic.h>
 #include <kernel/sched.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 
 /* ---------------------------------------------------------------
  * IPC 通道（静态分配，避免 channel 自身的内存管理）
@@ -262,17 +263,6 @@ static void wait_queue_unlink(struct task_struct **head,
 /* ================================================================
  * 局部打印工具（避免依赖其他模块的 static 函数）
  * ================================================================ */
-static void print_dec(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) { arch_console_putchar('0'); return; }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) arch_console_putchar(buf[--i]);
-}
-
 static void print_padded(const char *s, int width) {
     int i = 0;
     while (s[i] != '\0' && i < width) {
@@ -972,28 +962,28 @@ void ipc_stats(void) {
         total_recv_waiters += rw;
 
         arch_console_print("  ");
-        print_dec(c->id);
+        kprint_dec(c->id);
         arch_console_print("    ");
         print_padded(c->name, 12);
         arch_console_print("  ");
-        print_dec(c->capacity);
+        kprint_dec(c->capacity);
         arch_console_print("    ");
-        print_dec(c->msg_count);
+        kprint_dec(c->msg_count);
         arch_console_print("    ");
-        print_dec((u64)sw);
+        kprint_dec((u64)sw);
         arch_console_print("          ");
-        print_dec((u64)rw);
+        kprint_dec((u64)rw);
         arch_console_print("\n");
     }
 
     arch_console_print("\n  Total channels: ");
-    print_dec((u64)active);
+    kprint_dec((u64)active);
     arch_console_print("  Pending msgs: ");
-    print_dec(total_msgs);
+    kprint_dec(total_msgs);
     arch_console_print("  Send waiters: ");
-    print_dec((u64)total_send_waiters);
+    kprint_dec((u64)total_send_waiters);
     arch_console_print("  Recv waiters: ");
-    print_dec((u64)total_recv_waiters);
+    kprint_dec((u64)total_recv_waiters);
     arch_console_print("\n");
 
     arch_irq_restore(flags);

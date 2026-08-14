@@ -58,6 +58,7 @@
 #include <kernel/panic.h>
 #include <kernel/sched.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 
 /* ---------------------------------------------------------------
  * 异常名称表
@@ -106,62 +107,9 @@ static const char *exc_name(int vec) {
     return "Unknown";
 }
 
-/* ---------------------------------------------------------------
- * print_hex_u64 — 打印 64 位十六进制数
- *
- * panic 用，但本文件单独写一份避免依赖 panic.c 的 static 函数。
- * --------------------------------------------------------------- */
-static void print_hex_u64(u64 v) {
-    char buf[17];
-    int i = 0;
-    const char *hex = "0123456789ABCDEF";
-
-    if (v == 0) {
-        arch_console_print("0x0");
-        return;
-    }
-
-    /* 从最高位开始转换 */
-    while (v > 0 && i < 16) {
-        buf[i++] = hex[v & 0xF];
-        v >>= 4;
-    }
-    arch_console_print("0x");
-    while (i > 0) {
-        arch_console_putchar(buf[--i]);
-    }
-}
-
-/* ---------------------------------------------------------------
- * print_dec_u64 — 打印无符号十进制数
- * --------------------------------------------------------------- */
-static void print_dec_u64(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) {
-        arch_console_putchar('0');
-        return;
-    }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) {
-        arch_console_putchar(buf[--i]);
-    }
-}
-
-/* ---------------------------------------------------------------
- * print_dec_s64 — 打印有符号十进制数
- * --------------------------------------------------------------- */
-static void __attribute__((unused)) print_dec_s64(s64 v) {
-    if (v < 0) {
-        arch_console_putchar('-');
-        print_dec_u64((u64)(-v));
-    } else {
-        print_dec_u64((u64)v);
-    }
-}
+/* 【C8 修复】原 print_hex_u64 / print_dec_u64 / print_dec_s64 已删除，
+ *   统一用 <kernel/util.h> 的 kprint_hex / kprint_dec / kprint_dec_s。
+ *   顺便修了原 print_dec_s64 的 INT64_MIN UB（并删除该死代码）。 */
 
 /* ---------------------------------------------------------------
  * read_cr2 — 读取 CR2 寄存器（#PF 时是缺页地址）
@@ -188,38 +136,38 @@ static void dump_frame(const struct interrupt_frame *frame) {
     arch_console_print("\n  Register dump:\n");
     arch_console_set_color(CON_COLOR_DEFAULT);
 
-    arch_console_print("    RAX="); print_hex_u64(frame->rax);
-    arch_console_print("  RBX="); print_hex_u64(frame->rbx);
-    arch_console_print("  RCX="); print_hex_u64(frame->rcx);
-    arch_console_print("  RDX="); print_hex_u64(frame->rdx);
+    arch_console_print("    RAX="); kprint_hex(frame->rax);
+    arch_console_print("  RBX="); kprint_hex(frame->rbx);
+    arch_console_print("  RCX="); kprint_hex(frame->rcx);
+    arch_console_print("  RDX="); kprint_hex(frame->rdx);
     arch_console_print("\n");
-    arch_console_print("    RSI="); print_hex_u64(frame->rsi);
-    arch_console_print("  RDI="); print_hex_u64(frame->rdi);
-    arch_console_print("  RBP="); print_hex_u64(frame->rbp);
-    arch_console_print("  RSP="); print_hex_u64(frame->rsp);
+    arch_console_print("    RSI="); kprint_hex(frame->rsi);
+    arch_console_print("  RDI="); kprint_hex(frame->rdi);
+    arch_console_print("  RBP="); kprint_hex(frame->rbp);
+    arch_console_print("  RSP="); kprint_hex(frame->rsp);
     arch_console_print("\n");
-    arch_console_print("    R8 ="); print_hex_u64(frame->r8);
-    arch_console_print("  R9 ="); print_hex_u64(frame->r9);
-    arch_console_print("  R10="); print_hex_u64(frame->r10);
-    arch_console_print("  R11="); print_hex_u64(frame->r11);
+    arch_console_print("    R8 ="); kprint_hex(frame->r8);
+    arch_console_print("  R9 ="); kprint_hex(frame->r9);
+    arch_console_print("  R10="); kprint_hex(frame->r10);
+    arch_console_print("  R11="); kprint_hex(frame->r11);
     arch_console_print("\n");
-    arch_console_print("    R12="); print_hex_u64(frame->r12);
-    arch_console_print("  R13="); print_hex_u64(frame->r13);
-    arch_console_print("  R14="); print_hex_u64(frame->r14);
-    arch_console_print("  R15="); print_hex_u64(frame->r15);
+    arch_console_print("    R12="); kprint_hex(frame->r12);
+    arch_console_print("  R13="); kprint_hex(frame->r13);
+    arch_console_print("  R14="); kprint_hex(frame->r14);
+    arch_console_print("  R15="); kprint_hex(frame->r15);
     arch_console_print("\n");
-    arch_console_print("    RIP="); print_hex_u64(frame->rip);
-    arch_console_print("  CS ="); print_hex_u64(frame->cs);
-    arch_console_print("  RFLAGS="); print_hex_u64(frame->rflags);
+    arch_console_print("    RIP="); kprint_hex(frame->rip);
+    arch_console_print("  CS ="); kprint_hex(frame->cs);
+    arch_console_print("  RFLAGS="); kprint_hex(frame->rflags);
     arch_console_print("\n");
-    arch_console_print("    SS ="); print_hex_u64(frame->ss);
-    arch_console_print("  ERR=0x"); print_hex_u64(frame->err_code);
-    arch_console_print("  INT#="); print_dec_u64(frame->int_no);
+    arch_console_print("    SS ="); kprint_hex(frame->ss);
+    arch_console_print("  ERR=0x"); kprint_hex(frame->err_code);
+    arch_console_print("  INT#="); kprint_dec(frame->int_no);
     arch_console_print("\n");
 
     /* #PF 特殊：打印 CR2 */
     if (frame->int_no == EXC_PF) {
-        arch_console_print("    CR2="); print_hex_u64(read_cr2());
+        arch_console_print("    CR2="); kprint_hex(read_cr2());
         arch_console_print(" (faulting address)\n");
     }
 }
@@ -248,7 +196,7 @@ static void dump_page_fault(const struct interrupt_frame *frame) {
 
     /* 缺页地址 */
     arch_console_print("    Faulting address (CR2): ");
-    print_hex_u64(cr2);
+    kprint_hex(cr2);
     arch_console_print("\n");
 
     /* 触发操作的类型 */
@@ -463,10 +411,10 @@ void arch_exception_handler(struct interrupt_frame *frame) {
     arch_console_print("\n");
 
     arch_console_print("  Vector:    ");
-    print_dec_u64(frame->int_no);
+    kprint_dec(frame->int_no);
     arch_console_print("\n");
     arch_console_print("  Error code: 0x");
-    print_hex_u64(frame->err_code);
+    kprint_hex(frame->err_code);
     arch_console_print("\n");
 
     /* #PF 特殊处理：解码错误码，打印详细缺页信息 */

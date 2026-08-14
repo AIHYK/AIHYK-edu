@@ -75,6 +75,7 @@
 #include <kernel/panic.h>
 #include <kernel/sched.h>
 #include <kernel/types.h>
+#include <kernel/util.h>
 
 /* ---------------------------------------------------------------
  * 全局状态
@@ -91,32 +92,8 @@ static u64 cap_lineage_counter = 0;
 /* cap 子系统是否已初始化 */
 static int cap_initialized = 0;
 
-/* ---------------------------------------------------------------
- * 局部工具：打印数字（避免依赖其他模块的 static）
- * --------------------------------------------------------------- */
-static void cap_print_dec(u64 v) {
-    char buf[21];
-    int i = 0;
-    if (v == 0) { arch_console_putchar('0'); return; }
-    while (v > 0 && i < 20) {
-        buf[i++] = (char)('0' + (v % 10));
-        v /= 10;
-    }
-    while (i > 0) arch_console_putchar(buf[--i]);
-}
-
-static void cap_print_hex(u64 v) {
-    char buf[17];
-    int i = 0;
-    const char *hex = "0123456789ABCDEF";
-    if (v == 0) { arch_console_print("0x0"); return; }
-    while (v > 0 && i < 16) {
-        buf[i++] = hex[v & 0xF];
-        v >>= 4;
-    }
-    arch_console_print("0x");
-    while (i > 0) arch_console_putchar(buf[--i]);
-}
+/* 【C8 修复】原 cap_print_dec / cap_print_hex 已删除，
+ *   统一用 <kernel/util.h> 的 kprint_dec / kprint_hex。 */
 
 /* 把权限位格式化成字符串 "SMRD"（4 个字母） */
 static void cap_print_rights(u32 rights) {
@@ -617,9 +594,27 @@ int cap_recv_with_cap(cap_slot_t slot, u64 *out_type, void *buf,
                                     current->ipc_recv_cap_lineage);
         if (new_slot >= 0) {
             *out_cap_slot = (cap_slot_t)new_slot;
+        } else {
+            /* 【C2 修复】原代码静默丢弃 cap 并返回 CAP_OK，接收方无法
+             *   检测丢失。现在返回 CAP_ERR_CSPACE_FULL 让调用方知道：
+             *   消息数据已收到（buf 有效），但附带的 cap 因 cspace 满未能安装。
+             *
+             *   注意：此时消息已经从 channel 取出（ipc_recv_on_channel 成功），
+             *   不可回滚。调用方拿到 CAP_ERR_CSPACE_FULL 时：
+             *     - buf 里的消息数据有效
+             *     - *out_cap_slot = CAP_INVALID_SLOT（没装上）
+             *     - 调用方应扩容 cspace 或清理后重试 cap 协商
+             *
+             *   这与 CAP_ERR_TOOLONG（send 侧 payload 超长，消息未发送）不同：
+             *   CSPACE_FULL 是"消息已收但 cap 丢"。 */
+            /* 清字段后返回错误码（下面的清字段代码会执行） */
+            current->ipc_recv_cap_has_cap = 0;
+            current->ipc_recv_cap_type    = 0;
+            current->ipc_recv_cap_rights   = 0;
+            current->ipc_recv_cap_object  = NULL;
+            current->ipc_recv_cap_lineage = 0;
+            return CAP_ERR_CSPACE_FULL;
         }
-        /* 即使安装失败（cspace 满）也返回 IPC_OK：
-         * 消息已收到，只是 cap 没装上 */
     }
 
     /* 清字段：本次 recv 结束，下次开始时是干净的 */
@@ -692,7 +687,7 @@ int cap_destroy_channel(cap_slot_t slot) {
 void cap_stats(void) {
     arch_console_set_color(CON_COLOR_CYAN);
     arch_console_print("\nCapability Stats (task ");
-    cap_print_dec(current ? current->task_id : 0);
+    kprint_dec(current ? current->task_id : 0);
     arch_console_print(", ");
     if (current && current->name[0]) {
         arch_console_print(current->name);
@@ -720,22 +715,22 @@ void cap_stats(void) {
         used++;
 
         arch_console_print("  ");
-        cap_print_dec((u64)s);
+        kprint_dec((u64)s);
         arch_console_print("    ");
         arch_console_print(cap_type_name(c->type));
         arch_console_print("  ");
         cap_print_rights(c->rights);
         arch_console_print("  ");
-        cap_print_hex((u64)c->object);
+        kprint_hex((u64)c->object);
         arch_console_print("  ");
-        cap_print_dec(c->lineage);
+        kprint_dec(c->lineage);
         arch_console_print("\n");
     }
 
     arch_console_print("\n  Used slots: ");
-    cap_print_dec((u64)used);
+    kprint_dec((u64)used);
     arch_console_print(" / ");
-    cap_print_dec((u64)CAP_SLOTS_PER_TASK);
+    kprint_dec((u64)CAP_SLOTS_PER_TASK);
     arch_console_print("\n");
 
     arch_irq_restore(flags);
