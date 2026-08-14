@@ -1,0 +1,11 @@
+# Build artifacts
+*.o
+*.iso
+kernel.elf
+kernel.bin
+iso/
+# Editor
+*.swp
+*~
+.vscode/
+
